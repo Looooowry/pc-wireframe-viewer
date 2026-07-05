@@ -249,6 +249,11 @@
       <option value="grid-1x3">Row 1x3</option>
       <option value="whole">Whole Area</option>
     </select>
+    <span style="font-size:12px;color:#555;margin-left:8px;">Dataset:</span>
+    <select id="dataset-select">
+      <option value="main">Main (xyz/gt/pred)</option>
+      <option value="patch32">Patch32</option>
+    </select>
     <div class="spacer"></div>
     <label style="font-size:12px;color:#555;">BG:</label>
     <input type="color" id="bg-color" value="#ffffff" style="width:28px;height:28px;border:1px solid #d0d0d0;border-radius:4px;cursor:pointer;">
@@ -384,15 +389,31 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 
 // ============ Configuration ============
-const LAYER_CONFIG = {
-  pc:           { name: 'Point Cloud',       color: '#888888', defaultOn: true,  type: 'points', folder: 'xyz' },
-  gt:           { name: 'GT Wireframe',      color: '#000000', defaultOn: true,  type: 'lines',  folder: 'gt' },
-  pred_2048:    { name: 'Pred (2048)',       color: '#d32f2f', defaultOn: true,  type: 'lines',  folder: 'pred_2048' },
-  pred_roof:    { name: 'Pred (Roof v3)',    color: '#1976d2', defaultOn: true,  type: 'lines',  folder: 'pred_roof' },
-  test_results: { name: 'Test Results',      color: '#7b1fa2', defaultOn: false, type: 'lines',  folder: 'test_results' },
-  patch32:      { name: 'Patch32 σ0.01 c0.01',color: '#f57c00', defaultOn: false, type: 'lines',  folder: 'patch32' },
-  patch32_test: { name: 'Patch32 (test)',    color: '#00897b', defaultOn: false, type: 'lines',  folder: 'patch32_test' },
+const DATASETS = {
+  main: {
+    name: 'Main (xyz/gt/pred)',
+    listEndpoint: '/api/list',
+    layers: {
+      pc:           { name: 'Point Cloud',       color: '#888888', defaultOn: true,  type: 'points', folder: 'xyz' },
+      gt:           { name: 'GT Wireframe',      color: '#000000', defaultOn: true,  type: 'lines',  folder: 'gt' },
+      pred_2048:    { name: 'Pred (2048)',       color: '#d32f2f', defaultOn: true,  type: 'lines',  folder: 'pred_2048' },
+      pred_roof:    { name: 'Pred (Roof v3)',    color: '#1976d2', defaultOn: true,  type: 'lines',  folder: 'pred_roof' },
+      test_results: { name: 'Test Results',      color: '#7b1fa2', defaultOn: false, type: 'lines',  folder: 'test_results' },
+    }
+  },
+  patch32: {
+    name: 'Patch32',
+    listEndpoint: '/api/list/patch32',
+    layers: {
+      patch32:      { name: 'Patch32 σ0.01 c0.01', color: '#f57c00', defaultOn: true,  type: 'lines',  folder: 'patch32' },
+      patch32_test: { name: 'Patch32 (test)',       color: '#00897b', defaultOn: true,  type: 'lines',  folder: 'patch32_test' },
+    }
+  }
 };
+
+let currentDataset = 'main';
+let LAYER_CONFIG = { ...DATASETS.main.layers };
+let listEndpoint = DATASETS.main.listEndpoint;
 
 const API_BASE = '';
 let sampleList = [];
@@ -436,9 +457,13 @@ const state = {
 };
 
 // Initialize layer states
-for (const [key, cfg] of Object.entries(LAYER_CONFIG)) {
-  state.layers[key] = { on: cfg.defaultOn, color: cfg.color };
+function initLayerStates() {
+  state.layers = {};
+  for (const [key, cfg] of Object.entries(LAYER_CONFIG)) {
+    state.layers[key] = { on: cfg.defaultOn, color: cfg.color };
+  }
 }
+initLayerStates();
 
 // Data cache
 const dataCache = {};
@@ -447,7 +472,7 @@ const geometryCache = {};
 // ============ Data Loading ============
 async function loadSampleList() {
   try {
-    const resp = await fetch(`${API_BASE}/api/list`);
+    const resp = await fetch(`${API_BASE}${listEndpoint}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     sampleList = await resp.json();
     const sel = document.getElementById('sample-select');
@@ -1369,6 +1394,33 @@ document.getElementById('btn-whole-reload').addEventListener('click', () => {
   // Clear whole cache to force reload
   for (const k of Object.keys(wholeCache)) delete wholeCache[k];
   loadWholeArea().then(() => onResize());
+});
+
+// ============ Dataset Switch ============
+document.getElementById('dataset-select').addEventListener('change', async (e) => {
+  const ds = e.target.value;
+  if (ds === currentDataset) return;
+  currentDataset = ds;
+  const cfg = DATASETS[ds];
+  LAYER_CONFIG = { ...cfg.layers };
+  listEndpoint = cfg.listEndpoint;
+  initLayerStates();
+  // Clear caches for old dataset
+  for (const k of Object.keys(dataCache)) delete dataCache[k];
+  for (const k of Object.keys(geometryCache)) delete geometryCache[k];
+  // Reset layer objects
+  for (const key of Object.keys(layerObjects)) {
+    if (layerObjects[key]) {
+      scene.remove(layerObjects[key]);
+      layerObjects[key] = null;
+    }
+  }
+  lineMaterials.length = 0;
+  // Rebuild UI
+  buildLayerList();
+  // Reload samples
+  await loadSampleList();
+  onResize();
 });
 
 setupToggle('toggle-whole-compact', 'wholeCompact', () => {

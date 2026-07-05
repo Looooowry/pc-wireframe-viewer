@@ -27,8 +27,8 @@ FOLDERS = {
     "pred_2048":    (os.path.join(DATA_ROOT, "pred_wireframe_2048_bwformer"),         ".obj"),
     "pred_roof":    (os.path.join(DATA_ROOT, "pred_wireframe_roof_bwformerv3"),       ".obj"),
     "test_results": (os.path.join(DATA_ROOT, "test_results"),                         "_pred.obj"),
-    "patch32":      (os.path.join(DATA_ROOT, "patch32sigma0.01clip0.01"),             "_pred.obj"),
-    "patch32_test": (os.path.join(DATA_ROOT, "patch32sigma0.01clip0.01_test"),        "_pred.obj"),
+    "patch32":      (os.path.join(DATA_ROOT, "patch32sigma0.01clip0.01"),             ".obj"),
+    "patch32_test": (os.path.join(DATA_ROOT, "patch32sigma0.01clip0.01_test"),        ".obj"),
 }
 
 # Folders whose file presence is required for a sample to be listed.
@@ -334,6 +334,21 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/list":
                 data = json.dumps(get_id_list()).encode()
                 self._send_data(data, "application/json")
+
+            elif path.startswith("/api/list/"):
+                # /api/list/<folder_key> — samples from a single folder
+                folder_key = path.split("/")[3]
+                if folder_key in FOLDERS:
+                    folder, suffix = FOLDERS[folder_key]
+                    ids = set()
+                    if os.path.isdir(folder):
+                        for f in os.listdir(folder):
+                            if f.endswith(suffix):
+                                ids.add(f[:-len(suffix)])
+                    data = json.dumps(sorted(ids, key=lambda x: (len(x), x))).encode()
+                    self._send_data(data, "application/json")
+                else:
+                    self._send_404()
 
             elif path.startswith("/api/whole/"):
                 # /api/whole/<folder>?max=N&compact=1
